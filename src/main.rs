@@ -3,8 +3,8 @@
 
 use random::Source;
 use types::{
-    file_store::BLOCK_SIZE,
     node::{NodeIdent, SearchKey},
+    node_store::BLOCK_SIZE,
     tree::Tree,
 };
 
@@ -29,5 +29,5 @@ fn main() {
     tree.print_graphviz();
 
     let tree2 = Tree::<i64, FANOUT>::load("test_tree2".to_string()).unwrap();
-    //tree2.print_graphviz();
+    tree2.print_graphviz();
 }

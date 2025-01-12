@@ -10,17 +10,9 @@ use crate::types::node::{NodeIdent, SearchKey};
 
 use super::{
     node::Node,
-    node_store::{NodeStore, NodeStoreError},
+    node_store::{ByteSerialize, NodeStore, NodeStoreError, BLOCK_SIZE},
     second_chance_cache::{Cache, CacheItem},
 };
-
-/// size of the file blocks in bytes
-pub const BLOCK_SIZE: usize = 128;
-
-pub trait ByteSerialize {
-    fn to_bytes(&self) -> [u8; BLOCK_SIZE];
-    fn from_bytes(block: [u8; BLOCK_SIZE]) -> Self;
-}
 
 impl<T, const S: usize> ByteSerialize for Node<T, S>
 where

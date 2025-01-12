@@ -3,9 +3,9 @@ use std::{cell::RefCell, fmt::Debug, io, marker::PhantomData, rc::Rc};
 use clap::error::Result;
 
 use super::{
-    file_store::{FileStore, LoadError, Metadata, BLOCK_SIZE},
-    node::{Data, InsertionResult, Node, NodeIdent, SearchKey},
-    node_store::{NodeStore, NodeStoreError},
+    file_store::{FileStore, LoadError, Metadata},
+    node::{InsertionResult, Node, NodeIdent, SearchKey},
+    node_store::{NodeStore, NodeStoreError, BLOCK_SIZE},
 };
 
 pub struct Tree<T: Sized, const S: usize> {
@@ -21,7 +21,6 @@ pub enum TreeCreationError {
 impl<T, const S: usize> Tree<T, S>
 where
     T: Sized + 'static,
-
     T: Debug,
 {
     pub fn insert(&mut self, key: SearchKey, value: NodeIdent) -> () {

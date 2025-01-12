@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
 
@@ -30,53 +29,10 @@ where
 
 pub type SharedNodeStore<T, const S: usize> = Rc<RefCell<dyn NodeStore<T, S>>>;
 
-impl<const S: usize, T> NodeStore<T, S> for (HashMap<NodeIdent, Node<T, S>>, NodeIdent)
-where
-    T: Sized,
-    T: Debug,
-{
-    fn get_node(&mut self, ident: NodeIdent) -> Result<&mut Node<T, S>, NodeStoreError> {
-        let (nodes, _) = self;
-        let node = nodes.get_mut(&ident);
-        return match node {
-            None => Err(NodeStoreError::InvalidReference),
-            Some(n) => Ok(n),
-        };
-    }
+/// size of the file blocks in bytes
+pub const BLOCK_SIZE: usize = 128;
 
-    fn store_node(&mut self, node: Node<T, S>, is_leaf: bool) -> Result<NodeIdent, NodeStoreError> {
-        let (nodes, _) = self;
-
-        let key = if is_leaf {
-            self.1 += 1;
-            self.1
-        } else {
-            self.1 += 1;
-            -self.1
-        };
-
-        nodes.insert(key, node);
-
-        println!("Created node {key}");
-        return Ok(key);
-    }
-
-    fn print_stored_nodes(&mut self, _root: NodeIdent) -> () {
-        let (nodes, _) = self;
-        nodes
-            .iter()
-            .for_each(|e| println!("{}", e.1.to_graphviz(&e.0.clone())));
-    }
-
-    fn flush(&mut self) -> () {
-        panic!("Not Implemented");
-    }
-
-    fn set_metadata(&mut self, data: Metadata) {
-        panic!("Not Implemented");
-    }
-
-    fn node_ctr(&self) -> NodeIdent {
-        panic!("Not Implemented");
-    }
+pub trait ByteSerialize {
+    fn to_bytes(&self) -> [u8; BLOCK_SIZE];
+    fn from_bytes(block: [u8; BLOCK_SIZE]) -> Self;
 }
