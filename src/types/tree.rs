@@ -1,6 +1,5 @@
 use std::{cell::RefCell, fmt::Debug, io, marker::PhantomData, rc::Rc};
 
-use clap::error::Result;
 
 use super::{
     file_store::{FileStore, LoadError, Metadata},

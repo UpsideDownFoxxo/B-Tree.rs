@@ -36,7 +36,8 @@ where
     pub fn get_node(&mut self, node: NodeIdent) -> Option<&mut CacheItem<T, S>> {
         match self.nodes.get_mut(&node) {
             Some(e) => {
-                if e.chances < u8::MAX {
+                // limit the amount of chances we give each node before it gets paged out
+                if e.chances < 8 {
                     e.chances += 1;
                 }
                 Some(e)
