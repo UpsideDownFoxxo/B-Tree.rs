@@ -9,7 +9,7 @@ pub type SearchKey = i64;
 // leaf types
 // https://doc.rust-lang.org/nomicon/phantom-data.html
 #[derive(Debug)]
-pub struct InnerNode<T, const S: usize>
+pub struct Node<T, const S: usize>
 where
     T: Sized,
     T: Debug,
@@ -21,53 +21,8 @@ where
     pub phantom: PhantomData<T>,
 }
 
-#[derive(Debug)]
-pub struct LeafNode<T: Sized, const S: usize> {
-    pub keys: [SearchKey; S],
-    pub data_blocks: [NodeIdent; S],
-    pub size: usize,
-    pub phantom: PhantomData<T>,
-}
-
-pub trait Node<T: Sized, const S: usize> {
-    fn insert(
-        self_ident: NodeIdent,
-        key: SearchKey,
-        data: Data<T>,
-        shared_node_store: SharedNodeStore<T, S>,
-    ) -> InsertionResult<T, S>;
-
-    fn split(
-        &mut self,
-        largest_key: SearchKey,
-        largest_value: NodeIdent,
-    ) -> (SearchKey, [SearchKey; S], [NodeIdent; S]);
-
-    fn to_graphviz(&self, node_id: &NodeIdent) -> String;
-}
-
 pub struct Data<T: Sized> {
     pub data: T,
-}
-
-#[derive(Debug)]
-pub enum NodeInstance<T, const S: usize>
-where
-    T: Sized,
-    T: Debug,
-{
-    Inner(InnerNode<T, S>),
-    Leaf(LeafNode<T, S>),
-}
-
-#[derive(Debug)]
-pub enum NodeRef<'a, T, const S: usize>
-where
-    T: Sized,
-    T: Debug,
-{
-    Inner(&'a mut InnerNode<T, S>),
-    Leaf(&'a mut LeafNode<T, S>),
 }
 
 pub enum NodeCreationError {
@@ -109,12 +64,26 @@ where
     Some(hanging)
 }
 
-impl<T, const S: usize> Node<T, S> for InnerNode<T, S>
+impl<T, const S: usize> Node<T, S>
 where
     T: Sized,
     T: Debug,
 {
-    fn insert(
+    pub fn insert(
+        self_id: NodeIdent,
+        key: SearchKey,
+        data: Data<T>,
+        shared_node_store: SharedNodeStore<T, S>,
+    ) -> InsertionResult<T, S> {
+        if self_id < 0 {
+            println!("Accessing node {self_id} as inner");
+            Node::insert_inner(self_id, key, data, shared_node_store)
+        } else {
+            println!("Accessing node {self_id} as leaf");
+            Node::insert_leaf(self_id, key, data, shared_node_store)
+        }
+    }
+    fn insert_inner(
         self_id: NodeIdent,
         key: SearchKey,
         data: Data<T>,
@@ -123,10 +92,7 @@ where
         let (insert_child, insertion_index) = {
             let mut node_store = shared_node_store.borrow_mut();
             let current_node = match node_store.get_node(self_id) {
-                Ok(n) => match n {
-                    NodeRef::Inner(i) => i,
-                    NodeRef::Leaf(_) => panic!("Expected Inner node, got leaf"),
-                },
+                Ok(n) => n,
                 Err(e) => return InsertionResult::InsertError(e),
             };
 
@@ -140,12 +106,8 @@ where
             (current_node.children[insertion_index], insertion_index)
         };
 
-        // we explicitly drop node_store so the child node can open the refcell without panic
-        let res = if insert_child < 0 {
-            InnerNode::insert(insert_child, key, data, shared_node_store.clone())
-        } else {
-            LeafNode::insert(insert_child, key, data, shared_node_store.clone())
-        };
+        // we explicitly drop our node_store by exiting the scope so the child node can open the refcell without panic
+        let res = Node::insert(insert_child, key, data, shared_node_store.clone());
 
         let (new_sep, new_node_ident) = match res {
             InsertionResult::NodeOverflow(new_sep, new_node_ident, _phantom) => {
@@ -157,10 +119,7 @@ where
         // we need to fix up the current node, but we dropped our previous reference.
         let mut node_store = shared_node_store.borrow_mut();
         let current_node = match node_store.get_node(self_id) {
-            Ok(n) => match n {
-                NodeRef::Inner(i) => i,
-                NodeRef::Leaf(_) => panic!("Expected Inner node, got leaf"),
-            },
+            Ok(n) => n,
             Err(e) => return InsertionResult::InsertError(e),
         };
 
@@ -192,16 +151,16 @@ where
             }
         };
 
-        let (root_sep, right_seps, right_children) = current_node.split(key, value);
+        let (root_sep, right_seps, right_children) = current_node.split_inner(key, value);
 
-        let right_node = InnerNode {
+        let right_node = Node {
             children: right_children,
             separators: right_seps,
             size: S / 2,
             phantom: PhantomData::<T>,
         };
 
-        let right_node_ident = match node_store.store_node(NodeInstance::Inner(right_node)) {
+        let right_node_ident = match node_store.store_node(right_node, false) {
             Ok(i) => i,
             Err(_) => todo!(),
         };
@@ -209,7 +168,7 @@ where
         InsertionResult::NodeOverflow(root_sep, right_node_ident, PhantomData::<T>)
     }
 
-    fn split(
+    fn split_inner(
         &mut self,
         largest_key: SearchKey,
         largest_value: NodeIdent,
@@ -241,27 +200,7 @@ where
         (root_sep, right_seps, right_children)
     }
 
-    fn to_graphviz(&self, node_id: &NodeIdent) -> String {
-        let mut result = format!("{} [shape=record,label=\"<sep0> ", node_id);
-        for i in 0..self.size {
-            result.push_str(&format!("| {} | <sep{}> ", self.separators[i], i + 1));
-        }
-        result.push_str("\"];");
-
-        for i in 0..=self.size {
-            result.push_str(&format!("\n{}:sep{} -> {};", node_id, i, self.children[i]));
-        }
-
-        result
-    }
-}
-
-impl<T, const S: usize> Node<T, S> for LeafNode<T, S>
-where
-    T: Sized,
-    T: Debug,
-{
-    fn insert(
+    fn insert_leaf(
         self_id: NodeIdent,
         key: SearchKey,
         _data: Data<T>,
@@ -269,25 +208,27 @@ where
     ) -> InsertionResult<T, S> {
         let mut node_store = shared_node_store.borrow_mut();
         let current_node = match node_store.get_node(self_id) {
-            Ok(n) => match n {
-                NodeRef::Inner(_) => panic!("Expected Leaf node, got inner"),
-                NodeRef::Leaf(l) => l,
-            },
+            Ok(n) => n,
+
             Err(e) => return InsertionResult::InsertError(e),
         };
 
-        let separators = &current_node.keys[0..current_node.size];
+        let separators = &current_node.separators[0..current_node.size];
 
         let insertion_index = match separators.binary_search(&key) {
             Ok(_u) => return InsertionResult::DuplicateKey,
             Err(u) => u,
         };
 
-        let overflow_key =
-            insert_into_array::<SearchKey>(&mut current_node.keys[0..S], insertion_index, key, 0);
+        let overflow_key = insert_into_array::<SearchKey>(
+            &mut current_node.separators[0..S],
+            insertion_index,
+            key,
+            0,
+        );
         // TODO: key == value here. replace with Leaf reference once nodeStore is complete
         let overflow_value = insert_into_array::<NodeIdent>(
-            &mut current_node.data_blocks[0..S],
+            &mut current_node.children[0..S],
             insertion_index,
             10,
             0,
@@ -305,16 +246,16 @@ where
             }
         };
 
-        let (root_sep, right_seps, right_children) = current_node.split(key, value);
+        let (root_sep, right_seps, right_children) = current_node.split_leaf(key, value);
 
-        let right_node = LeafNode {
-            data_blocks: right_children,
-            keys: right_seps,
+        let right_node = Node {
+            children: right_children,
+            separators: right_seps,
             size: S / 2 + 1,
             phantom: PhantomData::<T>,
         };
 
-        let right_node_ident = match node_store.store_node(NodeInstance::Leaf(right_node)) {
+        let right_node_ident = match node_store.store_node(right_node, true) {
             Ok(i) => i,
             Err(_) => panic!("Unable to store newly created node"),
         };
@@ -322,15 +263,15 @@ where
         InsertionResult::NodeOverflow(root_sep, right_node_ident, PhantomData::<T>)
     }
 
-    fn split(
+    fn split_leaf(
         &mut self,
         largest_key: SearchKey,
         largest_value: NodeIdent,
     ) -> (SearchKey, [SearchKey; S], [NodeIdent; S]) {
         let target_size = S / 2;
 
-        let right_seps_slice = &mut self.keys[target_size..S];
-        let right_children_slice = &mut self.data_blocks[target_size..S];
+        let right_seps_slice = &mut self.separators[target_size..S];
+        let right_children_slice = &mut self.children[target_size..S];
 
         let mut right_seps = [0; S];
         let mut right_children = [0; S];
@@ -353,15 +294,29 @@ where
         (root_sep, right_seps, right_children)
     }
 
-    fn to_graphviz(&self, node_id: &NodeIdent) -> String {
-        let mut result = format!("{} [shape=record, label=\"", node_id);
-        for i in 0..self.size {
-            result.push_str(&format!("{{ {} }}", self.keys[i]));
-            if i < self.size - 1 {
-                result.push_str(" | ");
+    pub fn to_graphviz(&self, node_id: &NodeIdent) -> String {
+        if *node_id < 0 {
+            let mut result = format!("{} [shape=record,label=\"<sep0> ", node_id);
+            for i in 0..self.size {
+                result.push_str(&format!("| {} | <sep{}> ", self.separators[i], i + 1));
             }
+            result.push_str("\"];");
+
+            for i in 0..=self.size {
+                result.push_str(&format!("\n{}:sep{} -> {};", node_id, i, self.children[i]));
+            }
+
+            result
+        } else {
+            let mut result = format!("{} [shape=record, label=\"", node_id);
+            for i in 0..self.size {
+                result.push_str(&format!("{{ {} }}", self.separators[i]));
+                if i < self.size - 1 {
+                    result.push_str(" | ");
+                }
+            }
+            result.push_str("\"];");
+            result
         }
-        result.push_str("\"];");
-        result
     }
 }
