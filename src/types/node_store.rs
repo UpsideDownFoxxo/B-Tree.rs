@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
 
-use super::node::{Node, NodeIdent};
+use super::{
+    file_store::Metadata,
+    node::{Node, NodeIdent},
+};
 
 #[derive(Debug)]
 pub enum NodeStoreError {
@@ -21,6 +24,8 @@ where
     fn store_node(&mut self, node: Node<T, S>, is_leaf: bool) -> Result<NodeIdent, NodeStoreError>;
     fn print_stored_nodes(&mut self, root: NodeIdent) -> ();
     fn flush(&mut self) -> ();
+    fn set_metadata(&mut self, data: Metadata);
+    fn node_ctr(&self) -> NodeIdent;
 }
 
 pub type SharedNodeStore<T, const S: usize> = Rc<RefCell<dyn NodeStore<T, S>>>;
@@ -63,8 +68,15 @@ where
             .for_each(|e| println!("{}", e.1.to_graphviz(&e.0.clone())));
     }
 
-    // this does nothing since this version of the node store is entirely in memory
     fn flush(&mut self) -> () {
-        ()
+        panic!("Not Implemented");
+    }
+
+    fn set_metadata(&mut self, data: Metadata) {
+        panic!("Not Implemented");
+    }
+
+    fn node_ctr(&self) -> NodeIdent {
+        panic!("Not Implemented");
     }
 }

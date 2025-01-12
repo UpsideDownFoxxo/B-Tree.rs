@@ -1,6 +1,7 @@
 use std::{
     fmt::Debug,
     fs::{File, OpenOptions},
+    io,
     marker::PhantomData,
     os::unix::fs::FileExt,
 };
@@ -8,8 +9,8 @@ use std::{
 use crate::types::node::{NodeIdent, SearchKey};
 
 use super::{
-    node::{self, Node},
-    node_store::{self, NodeStore, NodeStoreError},
+    node::Node,
+    node_store::{NodeStore, NodeStoreError},
     second_chance_cache::{Cache, CacheItem},
 };
 
@@ -86,6 +87,80 @@ where
     }
 }
 
+#[derive(Debug)]
+pub struct Metadata {
+    pub fanout: usize,
+    pub block_size: usize,
+    pub node_ident_size: usize,
+    pub search_key_size: usize,
+    pub node_ctr: NodeIdent,
+    pub root_node: NodeIdent,
+}
+
+impl ByteSerialize for Metadata {
+    fn to_bytes(&self) -> [u8; BLOCK_SIZE] {
+        let mut block = [0; BLOCK_SIZE];
+        let mut index = 0;
+
+        let rest = [
+            self.fanout,
+            self.block_size,
+            self.node_ident_size,
+            self.search_key_size,
+        ];
+
+        for &num in rest.iter() {
+            let end = index + size_of::<usize>();
+            block[index..end].copy_from_slice(&num.to_le_bytes());
+            index = end;
+        }
+
+        let ctr_slice = &mut block[index..index + size_of::<NodeIdent>()];
+        ctr_slice.copy_from_slice(&self.node_ctr.to_le_bytes());
+        index += size_of::<NodeIdent>();
+
+        let root_slice = &mut block[index..index + size_of::<NodeIdent>()];
+        root_slice.copy_from_slice(&self.root_node.to_le_bytes());
+
+        block
+    }
+
+    fn from_bytes(block: [u8; BLOCK_SIZE]) -> Self {
+        let mut index = 0;
+        let mut base_params = [0usize; 4];
+
+        for i in 0..base_params.len() {
+            let slice = &block[index..index + size_of::<usize>()];
+            let mut entry = [0; size_of::<usize>()];
+            entry.copy_from_slice(slice);
+
+            base_params[i] = usize::from_le_bytes(entry);
+            index += size_of::<usize>();
+        }
+
+        let ctr_slice = &block[index..index + size_of::<NodeIdent>()];
+        let mut entry = [0u8; size_of::<NodeIdent>()];
+        entry.copy_from_slice(ctr_slice);
+        let node_ctr = NodeIdent::from_le_bytes(entry);
+        index += size_of::<NodeIdent>();
+
+        let root_slice = &block[index..index + size_of::<NodeIdent>()];
+        let mut entry = [0u8; size_of::<NodeIdent>()];
+        entry.copy_from_slice(root_slice);
+        let root = NodeIdent::from_le_bytes(entry);
+
+        let data = Metadata {
+            fanout: base_params[0],
+            block_size: base_params[1],
+            node_ident_size: base_params[2],
+            search_key_size: base_params[3],
+            node_ctr,
+            root_node: root,
+        };
+        data
+    }
+}
+
 pub struct FileStore<T, const S: usize>
 where
     T: Sized,
@@ -94,6 +169,12 @@ where
     file: File,
     node_ctr: NodeIdent,
     cache: Cache<T, S>,
+}
+
+#[derive(Debug)]
+pub enum LoadError {
+    ParameterMismatch,
+    IOError(io::Error),
 }
 
 impl<T, const S: usize> FileStore<T, S>
@@ -133,6 +214,37 @@ where
             Ok(_i) => Err(NodeStoreError::WriteFailed),
             Err(_e) => Err(NodeStoreError::WriteFailed),
         }
+    }
+
+    pub fn load(file_name: String) -> Result<(Self, NodeIdent), LoadError> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .append(false)
+            .create(false)
+            .open(file_name)
+            .map_err(|e| LoadError::IOError(e))?;
+
+        let mut buf = [0; BLOCK_SIZE];
+        file.read_exact_at(&mut buf, 0)
+            .map_err(|e| LoadError::IOError(e))?;
+
+        let metadata = Metadata::from_bytes(buf);
+        if metadata.block_size != BLOCK_SIZE
+            || metadata.search_key_size != size_of::<SearchKey>()
+            || metadata.node_ident_size != size_of::<NodeIdent>()
+        {
+            return Err(LoadError::ParameterMismatch);
+        }
+
+        Ok((
+            FileStore::<T, S> {
+                file,
+                node_ctr: metadata.node_ctr,
+                cache: Cache::<T, S>::new(),
+            },
+            metadata.root_node,
+        ))
     }
 }
 
@@ -186,5 +298,14 @@ where
             let node_block = item.node.to_bytes();
             self.set_block(id.abs() as usize, node_block).unwrap();
         });
+    }
+
+    fn set_metadata(&mut self, data: Metadata) {
+        let block = data.to_bytes();
+        self.set_block(0, block).unwrap();
+    }
+
+    fn node_ctr(&self) -> NodeIdent {
+        self.node_ctr
     }
 }

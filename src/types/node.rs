@@ -76,10 +76,8 @@ where
         shared_node_store: SharedNodeStore<T, S>,
     ) -> InsertionResult<T, S> {
         if self_id < 0 {
-            println!("Accessing node {self_id} as inner");
             Node::insert_inner(self_id, key, data, shared_node_store)
         } else {
-            println!("Accessing node {self_id} as leaf");
             Node::insert_leaf(self_id, key, data, shared_node_store)
         }
     }
