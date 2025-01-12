@@ -1,13 +1,10 @@
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
 
-use std::{cell::RefCell, marker::PhantomData, rc::Rc};
-
 use random::Source;
 use types::{
-    file_store::{FileStore, BLOCK_SIZE},
-    node::{Data, InsertionResult, Node, NodeIdent, SearchKey},
-    node_store::SharedNodeStore,
+    file_store::BLOCK_SIZE,
+    node::{NodeIdent, SearchKey},
     tree::Tree,
 };
 
@@ -25,11 +22,12 @@ fn main() {
         tree.insert(key, 10);
     }
 
-    tree.save();
-    tree.print();
+    tree.insert(10, 5);
+    println!("{:?}", tree.search(10));
 
-    println!("-------");
+    tree.save();
+    tree.print_graphviz();
 
     let tree2 = Tree::<i64, FANOUT>::load("test_tree2".to_string()).unwrap();
-    tree2.print();
+    //tree2.print_graphviz();
 }

@@ -5,7 +5,7 @@ use clap::error::Result;
 use super::{
     file_store::{FileStore, LoadError, Metadata, BLOCK_SIZE},
     node::{Data, InsertionResult, Node, NodeIdent, SearchKey},
-    node_store::NodeStore,
+    node_store::{NodeStore, NodeStoreError},
 };
 
 pub struct Tree<T: Sized, const S: usize> {
@@ -24,8 +24,8 @@ where
 
     T: Debug,
 {
-    pub fn insert(&mut self, key: SearchKey, value: T) -> () {
-        let res = Node::insert(self.root, key, Data { data: value }, self.store.clone());
+    pub fn insert(&mut self, key: SearchKey, value: NodeIdent) -> () {
+        let res = Node::insert(self.root, key, value, self.store.clone());
 
         match res {
             InsertionResult::Ok => (),
@@ -102,7 +102,13 @@ where
         })
     }
 
-    pub fn print(&self) {
+    pub fn print_graphviz(&self) {
+        println!("digraph G {{");
         self.store.borrow_mut().print_stored_nodes(self.root);
+        println!("}}");
+    }
+
+    pub fn search(&self, key: SearchKey) -> Result<Option<NodeIdent>, NodeStoreError> {
+        Node::search(self.root, key, self.store.clone())
     }
 }

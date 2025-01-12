@@ -72,7 +72,7 @@ where
     pub fn insert(
         self_id: NodeIdent,
         key: SearchKey,
-        data: Data<T>,
+        data: NodeIdent,
         shared_node_store: SharedNodeStore<T, S>,
     ) -> InsertionResult<T, S> {
         if self_id < 0 {
@@ -81,10 +81,45 @@ where
             Node::insert_leaf(self_id, key, data, shared_node_store)
         }
     }
+
+    pub fn search(
+        self_id: NodeIdent,
+        key: SearchKey,
+        shared_node_store: SharedNodeStore<T, S>,
+    ) -> Result<Option<NodeIdent>, NodeStoreError> {
+        let child = {
+            let mut node_store = shared_node_store.borrow_mut();
+            let node = node_store.get_node(self_id)?;
+
+            let separators = &node.separators[0..node.size];
+
+            let subtree_index = match separators.binary_search(&key) {
+                Ok(r) => {
+                    if self_id < 0 {
+                        r
+                    } else {
+                        return Ok(Some(node.children[r]));
+                    }
+                }
+                Err(r) => {
+                    if self_id < 0 {
+                        r
+                    } else {
+                        return Ok(None);
+                    }
+                }
+            };
+
+            node.children[subtree_index]
+        };
+
+        return Node::search(child, key, shared_node_store);
+    }
+
     fn insert_inner(
         self_id: NodeIdent,
         key: SearchKey,
-        data: Data<T>,
+        data: NodeIdent,
         shared_node_store: SharedNodeStore<T, S>,
     ) -> InsertionResult<T, S> {
         let (insert_child, insertion_index) = {
@@ -201,7 +236,7 @@ where
     fn insert_leaf(
         self_id: NodeIdent,
         key: SearchKey,
-        _data: Data<T>,
+        data: NodeIdent,
         shared_node_store: Rc<RefCell<(dyn NodeStore<T, S>)>>,
     ) -> InsertionResult<T, S> {
         let mut node_store = shared_node_store.borrow_mut();
@@ -224,11 +259,11 @@ where
             key,
             0,
         );
-        // TODO: key == value here. replace with Leaf reference once nodeStore is complete
+
         let overflow_value = insert_into_array::<NodeIdent>(
             &mut current_node.children[0..S],
             insertion_index,
-            10,
+            data,
             0,
         );
 
